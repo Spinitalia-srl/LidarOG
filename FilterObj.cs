@@ -1,17 +1,17 @@
 namespace LidarOG;
 
-public class FilterObj
+public class FilterObj<T>
 {
     // List<float[]>[,] vs float[,][][]
-    FilterObj(Func<List<float[]>[,], List<float[]>[,]> filter)
+    public FilterObj(Func<T, T> filter)
     {
         _mFilterFunc = filter;
     }
-    public List<float[]>[,] Filter(List<float[]>[,] input)
+    public T Filter(T input)
     {
         if(_mFilterFunc == null) throw new Exception("Uninitialized filter");
         return _mFilterFunc(input);
     }
 
-    private Func<List<float[]>[,], List<float[]>[,]>? _mFilterFunc;
+    private Func<T, T>? _mFilterFunc;
 }

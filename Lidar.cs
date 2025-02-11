@@ -4,16 +4,34 @@ using System.Net.Sockets;
 using System.Text;
 using System.Collections.Concurrent;
 using System.Drawing;
+using System.Diagnostics;
 
 namespace LidarOG;
+using FilterInput = List<GridPt>;
+using LidarFilter = FilterObj<List<GridPt>>;
+
+
+public struct GridPt
+{
+    public float[] pt = new float[3];
+    public int[] id = new int[2];
+
+    public GridPt()
+    {
+    }
+    public GridPt(float[] _pt, int[] _id) {
+        pt = _pt;
+        id = _id;
+    }
+}
 
 public interface ILidar: IDisposable
 {
     void StartListening();
     void StopListening();
-    bool AddFilter(FilterObj filter);
-    List<float[]>[,] GetGrid();
-    List<float[]>[,] Parse(byte[] msg);
+    bool AddFilter(FilterObj<FilterInput> filter);
+    List<GridPt> GetGrid();
+    FilterInput Parse(byte[] msg);
     public bool isRunning();
     public void Dispose();
 }
@@ -27,6 +45,7 @@ public class PandarXT : ILidar
         _mParseTask = null;
         _mListener = new UdpClient(port);
         _mIpEndPoint = new IPEndPoint(IPAddress.Any, port);
+        _mGrids = new List<GridPt>();
         StartListening();
     }
 
@@ -35,13 +54,21 @@ public class PandarXT : ILidar
         Running = true;
         while (Active)
         {
-            byte[] msg = _mListener.Receive(ref _mIpEndPoint);
-            List<float[]>[,] grid = Parse(msg);
-            if(!(_mFilterQueue == null || _mFilterQueue.IsEmpty))
-                foreach (FilterObj filter in _mFilterQueue)
-                    grid = filter.Filter(grid);
-            if (_mGrids is { Count: >= 10 }) _mGrids.TryDequeue(out _);
-            _mGrids?.Enqueue(grid);
+            if (_mListener.Available > 0)
+            {
+                byte[] msg = _mListener.Receive(ref _mIpEndPoint);
+                FilterInput grid = Parse(msg);
+                if (!(_mFilterQueue == null || _mFilterQueue.IsEmpty))
+                    foreach (LidarFilter filter in _mFilterQueue)
+                        grid = filter.Filter(grid);
+                //if (_mGrids is { Count: >= 200 }) _mGrids.TryDequeue(out _);
+                if (_mGrids != null) _mGrids.AddRange(grid);
+                else _mGrids = new FilterInput(grid);
+            }
+            else
+            {
+                Thread.Sleep(100);
+            }
         }
         Running = false;
     }
@@ -54,6 +81,7 @@ public class PandarXT : ILidar
     }
     public void StartListening()
     {
+        if (Active) return;
         Active = true;
         _mParseTask = new Task(Listen);
         _mParseTask.Start();
@@ -61,11 +89,12 @@ public class PandarXT : ILidar
 
     public void StopListening()
     {
+        if(!Active) return;
         Active = false;
         _mParseTask?.Wait();
     }
 
-    public bool AddFilter(FilterObj filter)
+    public bool AddFilter(LidarFilter filter)
     {
         try
         {
@@ -78,18 +107,19 @@ public class PandarXT : ILidar
             return false;
         }
     }
-    public List<float[]>[,] GetGrid()
+    public List<GridPt> GetGrid()
     {
-        var tmp= _mGrids?.Last();
-        _mGrids = new ConcurrentQueue<List<float[]>[,]>();
+        if (_mGrids == null) throw new Exception("Null grid");
+        var tmp = new List<GridPt>(_mGrids);
+        _mGrids = new();
         return tmp ?? throw new Exception("No grid available");
     }
 
-    public List<float[]>[,] Parse(byte[] msg)
+    public FilterInput Parse(byte[] msg)
     {
         double distanceUnit = msg[9]/1000.0f; //expressed in mm
         byte[] payload = msg.Skip(12).ToArray();
-        List<float[]>[,] inGrid = new List<float[]>[GridSize, GridSize];
+        List<GridPt> inGrid = new();
         for (int i = 0; i < 8; ++i) // 8 Blocks in a payload - 32 channels each
         {
             double azimuth = (Math.PI/180.0f)*(BitConverter.ToInt16(payload, 0)/100.0f); // it is in hundreds of degree
@@ -99,13 +129,14 @@ public class PandarXT : ILidar
                 double distance = BitConverter.ToUInt16(payload, 2 + j * 4) * distanceUnit;
                 float[] pt = new float[3];
                 //Point expressed in Lidar Frame
-                pt[0] = (float)(distance * Math.Cos(azimuth) * Math.Cos(elevation));
-                pt[1] = (float)(distance * Math.Sin(azimuth) * Math.Cos(elevation));
+                pt[0] = (float)(distance * Math.Sin(azimuth) * Math.Cos(elevation));
+                pt[1] = (float)(distance * Math.Cos(azimuth) * Math.Cos(elevation));
                 pt[2] = (float)(distance * Math.Sin(elevation));
                 //populate grid:
                 int indexX = (int)((pt[0] + GridSize * Side / 2) / Side);
                 int indexY = (int)((pt[1] + GridSize * Side / 2) / Side);
-                inGrid[indexX, indexY].Add(pt);
+                if (indexX >= GridSize || indexY >= GridSize || indexX < 0 || indexY < 0) continue;
+                else inGrid.Add(new GridPt(pt, [indexX, indexY]));
             }
         }
         return inGrid;
@@ -120,8 +151,8 @@ public class PandarXT : ILidar
     private bool _mRunning;
     public bool Running { get => _mRunning; private set => _mRunning = value; }
     private Task? _mParseTask;
-    private ConcurrentQueue<FilterObj>? _mFilterQueue = new();
-    private ConcurrentQueue<List<float[]>[,]>? _mGrids = new();
+    private ConcurrentQueue<LidarFilter>? _mFilterQueue = new();
+    private FilterInput? _mGrids;
     private float _mSide;
     public float Side { get => _mSide; private set => _mSide = value; }
     private int _mGridSize;
@@ -141,14 +172,39 @@ public class PandarXT : ILidar
 
 public class Mid360 : ILidar
 {
-    public Mid360()
+    public Mid360(string ip, int port = 56301, int gridSize = 50, float side = 1.0f)
     {
-        throw new NotImplementedException();
+        GridSize = gridSize;
+        Side = side;
+        _mParseTask = null;
+        _mListener = new UdpClient(port);
+        _mIpEndPoint = new IPEndPoint(IPAddress.Any, port);
+        _mGrids = new List<GridPt>();
+        StartListening();
     }
 
     public void Listen()
     {
-        throw new NotImplementedException();
+        Running = true;
+        while (Active)
+        {
+            if (_mListener.Available > 0)
+            {
+                byte[] msg = _mListener.Receive(ref _mIpEndPoint);
+                FilterInput grid = Parse(msg);
+                if (!(_mFilterQueue == null || _mFilterQueue.IsEmpty))
+                    foreach (LidarFilter filter in _mFilterQueue)
+                        grid = filter.Filter(grid);
+                //if (_mGrids is { Count: >= 200 }) _mGrids.TryDequeue(out _);
+                if (_mGrids != null) _mGrids.AddRange(grid);
+                else _mGrids = new FilterInput(grid);
+            }
+            else
+            {
+                Thread.Sleep(100);
+            }
+        }
+        Running = false;
     }
     #region Interface
 
@@ -158,6 +214,7 @@ public class Mid360 : ILidar
     }
     public void StartListening()
     {
+        if (Active) return;
         Active = true;
         _mParseTask = new Task(Listen);
         _mParseTask.Start();
@@ -165,11 +222,12 @@ public class Mid360 : ILidar
 
     public void StopListening()
     {
+        if (!Active) return;
         Active = false;
         _mParseTask?.Wait();
     }
 
-    public bool AddFilter(FilterObj filter)
+    public bool AddFilter(LidarFilter filter)
     {
         try
         {
@@ -182,20 +240,42 @@ public class Mid360 : ILidar
             return false;
         }
     }
-    public List<float[]>[,] GetGrid()
+    public List<GridPt> GetGrid()
     {
-        var tmp= _mGrids?.Last();
-        _mGrids = new ConcurrentQueue<List<float[]>[,]>();
+        if (_mGrids == null) throw new Exception("Null grid");
+        var tmp = new List<GridPt>(_mGrids);
+        _mGrids = new();
         return tmp ?? throw new Exception("No grid available");
     }
-    public List<float[]>[,] Parse(byte[] msg)
+
+    public FilterInput Parse(byte[] msg)
     {
-        throw new NotImplementedException();
+        int dot_num = BitConverter.ToUInt16(msg.Skip(5).ToArray());
+        int data_type = msg[10];
+        if (data_type != 1) throw new NotImplementedException("Data type not supported");
+        byte[] payload = msg.Skip(36).ToArray();
+        List<GridPt> inGrid = new();
+        for (int i = 0; i < dot_num; ++i) // number of points present in the payload
+        {
+            float[] pt = new float[3];
+            pt[0] = (float)(BitConverter.ToInt32(msg.Skip(36 + i * 14).ToArray()))/1000.0f;
+            pt[1] = (float)(BitConverter.ToInt32(msg.Skip(40 + i * 14).ToArray()))/1000.0f;
+            pt[2] = (float)(BitConverter.ToInt32(msg.Skip(44 + i * 14).ToArray()))/1000.0f;
+            //byte refl = msg[49 + i * 14];
+            //byte tag = msg[50 + i * 14];
+            if (pt[0] == 0 && pt[1] == 0 && pt[2] == 0) continue;
+            //populate grid:
+            int indexX = (int)((pt[0] + GridSize * Side / 2) / Side);
+            int indexY = (int)((pt[1] + GridSize * Side / 2) / Side);
+            if (indexX >= GridSize || indexY >= GridSize || indexX < 0 || indexY < 0) continue;
+            else inGrid.Add(new GridPt(pt, [indexX, indexY]));
+        }
+        return inGrid;
     }
 
     #endregion
     #region MEMBERS
-    
+
     private UdpClient _mListener;
     private IPEndPoint _mIpEndPoint;
     private bool _mActive;
@@ -203,13 +283,13 @@ public class Mid360 : ILidar
     private bool _mRunning;
     public bool Running { get => _mRunning; private set => _mRunning = value; }
     private Task? _mParseTask;
-    private ConcurrentQueue<FilterObj>? _mFilterQueue = new();
-    private ConcurrentQueue<List<float[]>[,]>? _mGrids = new();
+    private ConcurrentQueue<LidarFilter>? _mFilterQueue = new();
+    private FilterInput? _mGrids;
     private float _mSide;
     public float Side { get => _mSide; private set => _mSide = value; }
     private int _mGridSize;
     public int GridSize { get => _mGridSize; private set => _mGridSize = value; }
-    
+
     #endregion
     #region Disposable
 
