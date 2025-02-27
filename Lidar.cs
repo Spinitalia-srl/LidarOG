@@ -133,10 +133,7 @@ public class PandarXT : ILidar
                 pt[1] = (float)(distance * Math.Cos(azimuth) * Math.Cos(elevation));
                 pt[2] = (float)(distance * Math.Sin(elevation));
                 //populate grid:
-                int indexX = (int)((pt[0] + GridSize * Side / 2) / Side);
-                int indexY = (int)((pt[1] + GridSize * Side / 2) / Side);
-                if (indexX >= GridSize || indexY >= GridSize || indexX < 0 || indexY < 0) continue;
-                else inGrid.Add(new GridPt(pt, [indexX, indexY]));
+                inGrid.Add(new GridPt(pt, [0, 0]));
             }
         }
         return inGrid;
@@ -195,19 +192,6 @@ public class Mid360 : ILidar
                 if (!(_mFilterQueue == null || _mFilterQueue.IsEmpty))
                     foreach (LidarFilter filter in _mFilterQueue)
                         grid = filter.Filter(grid);
-                FilterObj<FilterInput> indexAssign = new FilterObj<FilterInput>(
-                    (input) => {
-                        FilterInput output = new();
-                        foreach (GridPt point in input)
-                        {
-                            int indexX = (int)((point.pt[0] + GridSize * Side / 2) / Side);
-                            int indexY = (int)((point.pt[1] + GridSize * Side / 2) / Side);
-                            if (indexX >= GridSize || indexY >= GridSize || indexX < 0 || indexY < 0) continue;
-                            else output.Add(new GridPt(point.pt, [indexX, indexY]));
-                        }
-                        return output;
-                    });
-                grid = indexAssign.Filter(grid);
                 //if (_mGrids is { Count: >= 200 }) _mGrids.TryDequeue(out _);
                 if (_mGrids != null) _mGrids.AddRange(grid);
                 else _mGrids = new FilterInput(grid);
