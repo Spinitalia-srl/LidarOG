@@ -174,8 +174,8 @@ public class Mid360 : ILidar
         GridSize = gridSize;
         Side = side;
         _mParseTask = null;
-        _mListener = new UdpClient(port);
-        _mIpEndPoint = new IPEndPoint(IPAddress.Any, port);
+        _mIpEndPoint = new IPEndPoint(IPAddress.Parse(ip), port);
+        _mListener = new UdpClient(_mIpEndPoint);
         _mGrids = new List<GridPt>();
         StartListening();
     }
