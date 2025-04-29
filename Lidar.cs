@@ -122,7 +122,7 @@ public class PandarXT : ILidar
         List<GridPt> inGrid = new();
         for (int i = 0; i < 8; ++i) // 8 Blocks in a payload - 32 channels each
         {
-            double azimuth = (Math.PI/180.0f)*(BitConverter.ToInt16(payload, 0)/100.0f); // it is in hundreds of degree
+            double azimuth = (Math.PI/180.0f)*(BitConverter.ToUInt16(payload, 0)/100.0f); // it is in hundreds of degree
             for (int j = 0; j < 32; ++j)
             {
                 double elevation = (Math.PI / 180.0f) * (15 - j);
