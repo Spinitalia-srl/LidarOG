@@ -36,7 +36,59 @@ public interface ILidar: IDisposable
     public void Dispose();
 }
 
-public class PandarXT : ILidar
+public abstract class HalfLidar : ILidar {
+    protected FilterInput _mGrids = new();
+    protected ConcurrentQueue<LidarFilter> _mFilterQueue = new();
+    protected object _gridLock = new();
+    public bool Running { get; protected set; } = false;
+
+    public virtual bool AddFilter(LidarFilter filter)
+    {
+        try
+        {
+            _mFilterQueue?.Enqueue(filter);
+            return true;
+        }
+        catch (Exception e)
+        {
+            Console.WriteLine(e);
+            return false;
+        }
+    }
+    public virtual List<GridPt> GetGrid()
+    {
+        if (_mGrids == null) throw new Exception("Null grid");
+        List<GridPt> tmp;
+        lock(_gridLock)
+            tmp = new List<GridPt>(_mGrids);
+        _mGrids = new();
+        return tmp ?? throw new Exception("No grid available");
+    }
+    public virtual bool isRunning()
+    {
+        return Running;
+    }
+
+    public virtual void StartListening()
+    {
+        throw new NotImplementedException();
+    }
+    public virtual void StopListening()
+    {
+        throw new NotImplementedException();
+    }
+
+    public virtual FilterInput Parse(byte[] msg)
+    {
+        throw new NotImplementedException();
+    }
+    public virtual void Dispose()
+    {
+        throw new NotImplementedException();
+    }
+}
+
+public class PandarXT : HalfLidar
 {
     public PandarXT(string ip, int port = 2368, int gridSize = 50, float side = 1.0f)
     {
@@ -62,8 +114,11 @@ public class PandarXT : ILidar
                     foreach (LidarFilter filter in _mFilterQueue)
                         grid = filter.Filter(grid);
                 //if (_mGrids is { Count: >= 200 }) _mGrids.TryDequeue(out _);
-                if (_mGrids != null) _mGrids.AddRange(grid);
-                else _mGrids = new FilterInput(grid);
+                lock (_gridLock)
+                {
+                    if (_mGrids != null) _mGrids.AddRange(grid);
+                    else _mGrids = new FilterInput(grid);
+                }
             }
             else
             {
@@ -74,12 +129,8 @@ public class PandarXT : ILidar
     }
     
     #region Interface
-
-    public bool isRunning()
-    {
-        return Running;
-    }
-    public void StartListening()
+    
+    public override void StartListening()
     {
         if (Active) return;
         Active = true;
@@ -87,35 +138,15 @@ public class PandarXT : ILidar
         _mParseTask.Start();
     }
 
-    public void StopListening()
+    public override void StopListening()
     {
         if(!Active) return;
         Active = false;
         _mParseTask?.Wait();
+        _mListener.Close();
     }
 
-    public bool AddFilter(LidarFilter filter)
-    {
-        try
-        {
-            _mFilterQueue?.Enqueue(filter);
-            return true;
-        }
-        catch (Exception e)
-        {
-            Console.WriteLine(e);
-            return false;
-        }
-    }
-    public List<GridPt> GetGrid()
-    {
-        if (_mGrids == null) throw new Exception("Null grid");
-        var tmp = new List<GridPt>(_mGrids);
-        _mGrids = new();
-        return tmp ?? throw new Exception("No grid available");
-    }
-
-    public FilterInput Parse(byte[] msg)
+    public override FilterInput Parse(byte[] msg)
     {
         double distanceUnit = msg[9]/1000.0f; //expressed in mm
         byte[] payload = msg.Skip(12).ToArray();
@@ -146,10 +177,7 @@ public class PandarXT : ILidar
     private bool _mActive;
     public bool Active { get => _mActive; private set => _mActive = value; }
     private bool _mRunning;
-    public bool Running { get => _mRunning; private set => _mRunning = value; }
     private Task? _mParseTask;
-    private ConcurrentQueue<LidarFilter>? _mFilterQueue = new();
-    private FilterInput? _mGrids;
     private float _mSide;
     public float Side { get => _mSide; private set => _mSide = value; }
     private int _mGridSize;
@@ -158,7 +186,7 @@ public class PandarXT : ILidar
     #endregion
     #region Disposable
 
-    public void Dispose()
+    public override void Dispose()
     {
         Console.WriteLine("Disposing PandarXT...");
         StopListening();
@@ -167,7 +195,7 @@ public class PandarXT : ILidar
     #endregion
 }
 
-public class Mid360 : ILidar
+public class Mid360 : HalfLidar
 {
     public Mid360(string ip, int port = 56301, int gridSize = 50, float side = 1.0f)
     {
@@ -193,8 +221,10 @@ public class Mid360 : ILidar
                     foreach (LidarFilter filter in _mFilterQueue)
                         grid = filter.Filter(grid);
                 //if (_mGrids is { Count: >= 200 }) _mGrids.TryDequeue(out _);
-                if (_mGrids != null) _mGrids.AddRange(grid);
-                else _mGrids = new FilterInput(grid);
+                lock (_gridLock)
+                {
+                    _mGrids.AddRange(grid);
+                }
             }
             else
             {
@@ -204,12 +234,8 @@ public class Mid360 : ILidar
         Running = false;
     }
     #region Interface
-
-    public bool isRunning()
-    {
-        return Running;
-    }
-    public void StartListening()
+    
+    public override void StartListening()
     {
         if (Active) return;
         Active = true;
@@ -217,35 +243,15 @@ public class Mid360 : ILidar
         _mParseTask.Start();
     }
 
-    public void StopListening()
+    public override void StopListening()
     {
         if (!Active) return;
         Active = false;
         _mParseTask?.Wait();
+        _mListener.Close();
     }
 
-    public bool AddFilter(LidarFilter filter)
-    {
-        try
-        {
-            _mFilterQueue?.Enqueue(filter);
-            return true;
-        }
-        catch (Exception e)
-        {
-            Console.WriteLine(e);
-            return false;
-        }
-    }
-    public List<GridPt> GetGrid()
-    {
-        if (_mGrids == null) throw new Exception("Null grid");
-        var tmp = new List<GridPt>(_mGrids);
-        _mGrids = new();
-        return tmp ?? throw new Exception("No grid available");
-    }
-
-    public FilterInput Parse(byte[] msg)
+    public override FilterInput Parse(byte[] msg)
     {
         int dot_num = BitConverter.ToUInt16(msg.Skip(5).ToArray());
         int data_type = msg[10];
@@ -291,10 +297,84 @@ public class Mid360 : ILidar
     #endregion
     #region Disposable
 
-    public void Dispose()
+    public override void Dispose()
     {
         StopListening();
     }
     
     #endregion
+}
+
+public class Mock : HalfLidar
+{
+    private CancellationTokenSource _cts = new();
+    public bool Active { get; private set; } = false;
+    private Task _mWorker;
+    private Random rnd = new();
+    private FilterInput _base;
+
+    public Mock(string ip, int port = 56301, int gridSize = 50, float side = 1.0f)
+    {
+        _base = new();
+        _mGrids = new();
+        int max = rnd.Next(100, 200);
+        for (int i = 0; i < max; ++i)
+        {
+            float[] tmp =
+            [
+                (float)(rnd.NextDouble() - 0.5) * 40,
+                (float)(rnd.NextDouble() - 0.5) * 40,
+                (float)(rnd.NextDouble() - 0.2) * 25
+            ];
+            _base.Add(new GridPt(tmp,[0,0]));
+        }
+        StartListening();
+    }
+
+    private void Propagate(CancellationToken ct)
+    {
+        Running = true;
+        while (!ct.IsCancellationRequested)
+        {
+            foreach (var point in _base)
+            {
+                point.pt[0] += ((float)rnd.NextDouble() - 0.5f) / 2;
+                point.pt[1] += ((float)rnd.NextDouble() - 0.5f) / 2;
+                point.pt[2] += ((float)rnd.NextDouble() - 0.5f) / 2;
+            }
+            var grid = new FilterInput(_base);
+            if(!(_mFilterQueue == null || _mFilterQueue.IsEmpty))
+                foreach(var filter in _mFilterQueue)
+                    grid =  filter.Filter(grid);
+            lock (_gridLock) _mGrids.AddRange(grid);
+            Thread.Sleep(10);
+        }
+        Running = false;
+    }
+    
+    public override void StartListening()
+    {
+        if(Active) return;
+        Active = true;
+        _mWorker = new Task(() => {Propagate(_cts.Token);});
+        _mWorker.Start();
+    }
+
+    public override void StopListening()
+    {
+        if (!Active) return;
+        Active = false;
+        _cts.Cancel();
+        _mWorker.Wait();
+    }
+
+    public override FilterInput Parse(byte[] msg)
+    {
+        return new();
+    }
+
+    public override void Dispose()
+    {
+        StopListening();
+    }
 }
