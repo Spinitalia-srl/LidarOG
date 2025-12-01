@@ -96,35 +96,39 @@ public class PandarXT : HalfLidar
         Side = side;
         _mParseTask = null;
         _mIpEndPoint = new IPEndPoint(IPAddress.Parse(ip), port);
-        _mListener = new UdpClient(_mIpEndPoint);
+        _mListener = new();
         _mGrids = new List<GridPt>();
         StartListening();
     }
 
-    public void Listen()
+    private void Listen(CancellationToken token)
     {
         Running = true;
-        while (Active)
+        _mListener = new UdpClient(_mIpEndPoint);
+        while (!token.IsCancellationRequested)
         {
-            if (_mListener.Available > 0)
+            try
             {
-                byte[] msg = _mListener.Receive(ref _mIpEndPoint);
-                FilterInput grid = Parse(msg);
+                var tmp = _mListener.ReceiveAsync(token);
+                var msg = tmp.Result.Buffer;
+                var grid = Parse(msg);
                 if (!(_mFilterQueue == null || _mFilterQueue.IsEmpty))
-                    foreach (LidarFilter filter in _mFilterQueue)
+                    foreach (var filter in _mFilterQueue)
                         grid = filter.Filter(grid);
                 //if (_mGrids is { Count: >= 200 }) _mGrids.TryDequeue(out _);
                 lock (_gridLock)
                 {
-                    if (_mGrids != null) _mGrids.AddRange(grid);
-                    else _mGrids = new FilterInput(grid);
+                    _mGrids.AddRange(grid);
                 }
             }
-            else
+            catch
             {
-                //Thread.Sleep(100);
+                Console.WriteLine();
+                _mListener.Close();
+                _mListener = new UdpClient(_mIpEndPoint);
             }
         }
+        _mListener.Close();
         Running = false;
     }
     
@@ -134,7 +138,7 @@ public class PandarXT : HalfLidar
     {
         if (Active) return;
         Active = true;
-        _mParseTask = new Task(Listen);
+        _mParseTask = new Task(() => Listen(_cts.Token));
         _mParseTask.Start();
     }
 
@@ -176,6 +180,7 @@ public class PandarXT : HalfLidar
     private IPEndPoint _mIpEndPoint;
     private bool _mActive;
     public bool Active { get => _mActive; private set => _mActive = value; }
+    private CancellationTokenSource _cts = new();
     private Task? _mParseTask;
     private float _mSide;
     public float Side { get => _mSide; private set => _mSide = value; }
@@ -202,22 +207,24 @@ public class Mid360 : HalfLidar
         Side = side;
         _mParseTask = null;
         _mIpEndPoint = new IPEndPoint(IPAddress.Parse(ip), port);
-        _mListener = new UdpClient(_mIpEndPoint);
+        _mListener = new();
         _mGrids = new List<GridPt>();
         StartListening();
     }
 
-    public void Listen()
+    private void Listen(CancellationToken token)
     {
         Running = true;
-        while (Active)
+        _mListener = new UdpClient(_mIpEndPoint);
+        while (!token.IsCancellationRequested)
         {
-            if (_mListener.Available > 0)
+            try
             {
-                byte[] msg = _mListener.Receive(ref _mIpEndPoint);
-                FilterInput grid = Parse(msg);
+                var tmp = _mListener.ReceiveAsync(token);
+                var msg = tmp.Result.Buffer;
+                var grid = Parse(msg);
                 if (!(_mFilterQueue == null || _mFilterQueue.IsEmpty))
-                    foreach (LidarFilter filter in _mFilterQueue)
+                    foreach (var filter in _mFilterQueue)
                         grid = filter.Filter(grid);
                 //if (_mGrids is { Count: >= 200 }) _mGrids.TryDequeue(out _);
                 lock (_gridLock)
@@ -225,11 +232,14 @@ public class Mid360 : HalfLidar
                     _mGrids.AddRange(grid);
                 }
             }
-            else
+            catch
             {
-                //Thread.Sleep(100);
+                Console.WriteLine();
+                _mListener.Close();
+                _mListener = new UdpClient(_mIpEndPoint);
             }
         }
+        _mListener.Close();
         Running = false;
     }
     #region Interface
@@ -238,7 +248,7 @@ public class Mid360 : HalfLidar
     {
         if (Active) return;
         Active = true;
-        _mParseTask = new Task(Listen);
+        _mParseTask = new Task(() => Listen(_cts.Token));
         _mParseTask.Start();
     }
 
@@ -281,6 +291,7 @@ public class Mid360 : HalfLidar
 
     private UdpClient _mListener;
     private IPEndPoint _mIpEndPoint;
+    private CancellationTokenSource _cts = new();
     private bool _mActive;
     public bool Active { get => _mActive; private set => _mActive = value; }
     private Task? _mParseTask;
