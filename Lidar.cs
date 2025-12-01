@@ -176,7 +176,6 @@ public class PandarXT : HalfLidar
     private IPEndPoint _mIpEndPoint;
     private bool _mActive;
     public bool Active { get => _mActive; private set => _mActive = value; }
-    private bool _mRunning;
     private Task? _mParseTask;
     private float _mSide;
     public float Side { get => _mSide; private set => _mSide = value; }
@@ -284,11 +283,7 @@ public class Mid360 : HalfLidar
     private IPEndPoint _mIpEndPoint;
     private bool _mActive;
     public bool Active { get => _mActive; private set => _mActive = value; }
-    private bool _mRunning;
-    public bool Running { get => _mRunning; private set => _mRunning = value; }
     private Task? _mParseTask;
-    private ConcurrentQueue<LidarFilter>? _mFilterQueue = new();
-    private FilterInput? _mGrids;
     private float _mSide;
     public float Side { get => _mSide; private set => _mSide = value; }
     private int _mGridSize;
