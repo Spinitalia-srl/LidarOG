@@ -90,10 +90,8 @@ public abstract class HalfLidar : ILidar {
 
 public class PandarXT : HalfLidar
 {
-    public PandarXT(string ip, int port = 2368, int gridSize = 50, float side = 1.0f)
+    public PandarXT(string ip, int port = 2368)
     {
-        GridSize = gridSize;
-        Side = side;
         _mParseTask = null;
         _mIpEndPoint = new IPEndPoint(IPAddress.Parse(ip), port);
         _mListener = new();
@@ -182,10 +180,6 @@ public class PandarXT : HalfLidar
     public bool Active { get => _mActive; private set => _mActive = value; }
     private CancellationTokenSource _cts = new();
     private Task? _mParseTask;
-    private float _mSide;
-    public float Side { get => _mSide; private set => _mSide = value; }
-    private int _mGridSize;
-    public int GridSize { get => _mGridSize; private set => _mGridSize = value; }
     
     #endregion
     #region Disposable
@@ -201,10 +195,8 @@ public class PandarXT : HalfLidar
 
 public class Mid360 : HalfLidar
 {
-    public Mid360(string ip, int port = 56301, int gridSize = 50, float side = 1.0f)
+    public Mid360(string ip, int port = 56301)
     {
-        GridSize = gridSize;
-        Side = side;
         _mParseTask = null;
         _mIpEndPoint = new IPEndPoint(IPAddress.Parse(ip), port);
         _mListener = new();
@@ -295,10 +287,6 @@ public class Mid360 : HalfLidar
     private bool _mActive;
     public bool Active { get => _mActive; private set => _mActive = value; }
     private Task? _mParseTask;
-    private float _mSide;
-    public float Side { get => _mSide; private set => _mSide = value; }
-    private int _mGridSize;
-    public int GridSize { get => _mGridSize; private set => _mGridSize = value; }
 
     #endregion
     #region Disposable
@@ -319,7 +307,7 @@ public class Mock : HalfLidar
     private Random rnd = new();
     private FilterInput _base;
 
-    public Mock(string ip, int port = 56301, int gridSize = 50, float side = 1.0f)
+    public Mock(string ip, int port = 56301)
     {
         _base = new();
         _mGrids = new();
